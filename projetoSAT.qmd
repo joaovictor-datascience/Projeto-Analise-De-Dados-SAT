@@ -1,0 +1,191 @@
+---
+title: "Análise do desempenho no SAT (1994-1995)"
+author: "João Victor Magalhães Matusalen"
+format:
+  html:
+    code-summary: "Código"
+    code-fold: true
+    toc: true
+    theme: cosmo
+    html-math-method: mathjax
+embed-resources: true
+lang: pt-BR
+---
+
+## Introdução
+
+Este trabalho analisa dados estaduais do SAT (Scholastic Assessment Test) no período de 1994-1995. 
+
+O SAT é um exame educacional padronizado aplicado a estudantes do Ensino Médio nos Estados Unidos e utilizado como um dos critérios de admissão em universidades norte-americanas. Embora seja frequentemente comparado ao ENEM brasileiro, o processo de admissão universitária nos Estados Unidos não depende somente da nota obtida no exame.
+
+O banco de dados utilizado neste trabalho reúne informações de 50 observações, correspondentes aos estados norte-americanos, com `4`variáveis explicativas e `1`variável resposta:
+
+- Variável resposta:
+  - `total`: média do total de pontos obtidos no SAT.
+
+- Variáveis explicativas:
+  - `salario`: faixa salarial anual ( mil dólares) de professores de escolas públicas elementares e secundárias (1: inferior à 30; 2: entre 30 e 40; 3: superior à 40);
+  - `despesa`: despesas correntes (mil dólares) médias por aluno de escolas públicas primárias e secundárias;
+  - `razão`: razão média de alunos/professores de escolas públicas elementares e secundárias;
+  - `percentual`: percentual de alunos aptos que realizaram o exame;
+
+A questão central é avaliar se variáveis ligadas à educação pública estão associadas ao desempenho médio no SAT.
+
+## Análise dos dados
+
+De inicio para desvendar a base e entender nossos dados, vamos carregar para dentro do R, trazer descritivas sobre as váriaveis e plotar usando o `GGally:ggpairs` a tabela de correlação.
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(knitr)
+library(GGally)
+
+#Importando os dados
+
+dados <- read.csv("data/SAT.csv") |> as_tibble()
+
+dados
+```
+
+
+```{r}
+#| label: tbl-descritivas
+#| tbl-cap: "Estatísticas descritivas das variáveis quantitativas."
+
+dados |>
+  select(total, percentual, despesa, razao) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "variavel",
+    values_to = "valor"
+  ) |>
+  group_by(variavel) |>
+  summarise(
+    n = n(),
+    media = mean(valor),
+    desvio_padrao = sd(valor),
+    minimo = min(valor),
+    q1 = quantile(valor, 0.25),
+    mediana = median(valor),
+    q3 = quantile(valor, 0.75),
+    maximo = max(valor),
+    .groups = "drop"
+  ) |>
+  mutate(across(where(is.numeric), ~ round(.x, 2))) |>
+  kable()
+```
+
+```{r}
+#| label: tbl-correlacao
+#| tbl-cap: "Tabela de correlação"
+ggpairs(dados)
+```
+
+Com base nas informações apresentadas na tabela @tbl-descritivas, observa-se uma variabilidade bastante elevada no percentual de alunos aptos a realizarem a prova. O menor percentual registrado foi de 26,76%, enquanto o maior atingiu 81%, resultando em uma diferença de 54,24 pontos percentuais. Além disso, a média total de notas também apresenta grande dispersão, evidenciada pelo desvio padrão de 74,82. Esses resultados indicam diferenças significativas tanto nas notas quanto na quantidade de participantes entre os estados, sugerindo uma possível correlação entre essas variáveis.
+
+A tabela @tbl-correlacao reforça essa hipótese ao apresentar uma correlação de `-0,887` entre a média total de notas e o percentual de participantes, indicando que estados com maior número de participantes tendem a apresentar médias mais baixas. Também é possível observar uma correlação positiva relevante entre despesa e percentual de participantes `0,593`, sugerindo que estados com maiores investimentos em educação possuem maior percentual de participantes aptos. Em relação ao salário dos professores, a correlação com a média total de notas foi de `-0,396`, demonstrando que salários mais elevados não impactam diretamente na qualidade da nota. Por fim, a variável razão não apresentou significância estatística suficiente nesta base de dados.
+
+Essa análise inicial será aprofundada nas próximas etapas do trabalho, por meio do treinamento dos modelos e da investigação mais detalhada da relação entre quantidade de participantes e média das notas.
+
+## Treinamento do modelo
+
+Com base nas conclusões tiradas na análise dos dados, vamos utilizar um modelo de regressão linear:
+
+$$
+ytotal_i = \beta_0 + \beta_1 salario_i + \beta_2 percentual_i + \beta_3 despesa_i +  \varepsilon_i
+$$
+
+```{r}
+modelo <- lm(total ~ salario + percentual + despesa, data=dados)
+summary(modelo)
+```
+
+Com a saída da função `summary`, podemos observar que, embora a variável salário apresente um valor de correlação relativamente elevado, ela não demonstrou significância estatística no modelo. Considerando que o objetivo deste estudo é encontrar o modelo que melhor se ajuste aos dados analisados, a variável salário será removida e o modelo será treinado novamente.
+
+Após o novo treinamento, a avaliação será realizada com base nos indicadores AIC, BIC e R2 ajustado, permitindo identificar o modelo com melhor capacidade de ajuste e equilíbrio entre desempenho e complexidade.
+
+```{r}
+#| label: modelos
+
+modelo_com_salario <- lm(total ~ salario + percentual + despesa, data = dados)
+modelo_sem_salario <- lm(total ~ percentual + despesa, data = dados)
+
+modelos <- list(
+  "Com salário" = modelo_com_salario,
+  "Sem salário" = modelo_sem_salario
+)
+```
+
+```{r}
+#| label: tbl-comparacao-modelos
+#| tbl-cap: "Comparação dos modelos ajustados."
+#| message: false
+#| warning: false
+
+library(broom)
+
+bind_rows(
+  lapply(modelos, glance),
+  .id = "modelo"
+) |>
+  select(modelo, r.squared, adj.r.squared, sigma, AIC, BIC, p.value) |>
+  kable()
+```
+
+Com base nos resultados obtidos, podemos afirmar que a variável salário não apresentou significância estatística suficiente para explicar adequadamente os dados analisados. Essa conclusão torna-se ainda mais evidente ao observar a saída da função `summary` no novo modelo, em que a remoção dessa variável não comprometeu a capacidade explicativa do modelo.
+
+```{r}
+summary(modelo_sem_salario)
+```
+
+Ou seja podemos rejeitar a hipótese nula $H_0$. E apartir disso prosseguir a análise utilizando o modelo sem essa variável, mantendo sua capacidade explicativa e favorecendo uma estrutura mais simples e eficiente.
+
+## Diagnóstico do modelo
+
+Os gráficos sobre os resíduos do modelo final são apresntados na figura @fig-diagnosticos. De modo geral, os resíduos não indicam violações graves dos pressupostos de linearidade, normalidade e homocedasticidade. Há algumas observações com maior distância de Cook, mas a influência não parece comprometer a conclusão principal do modelo.
+
+```{r}
+#| label: fig-diagnosticos
+#| fig-cap: "Gráficos de diagnóstico do modelo final."
+#| fig-width: 8
+#| fig-height: 7
+
+modelo_final <- modelo_sem_salario
+
+par(mfrow = c(2, 2))
+plot(modelo_final)
+par(mfrow = c(1, 1))
+```
+
+Os testes formais também não apontam problemas relevantes nos resíduos. O teste de Shapiro-Wilk não rejeita a normalidade dos resíduos, e o teste de Breusch-Pagan não rejeita a hipótese de variância constante.
+
+```{r}
+#| message: false
+#| warning: false
+
+library(lmtest)
+library(zoo)
+
+
+shapiro.test(residuals(modelo_final))
+bptest(modelo_final)
+```
+
+## Conclusão
+
+Após a análise, podemos observar que, caso utilizássemos apenas a estatística descritiva, poderíamos chegar a conclusões equivocadas sobre os dados. A variável de maior impacto no conjunto analisado foi o percentual de alunos aptos a realizar a prova, variável está diretamente relacionada às despesas dos estados com educação.
+
+Em uma análise superficial, seria possível supor que estados com maiores gastos apresentam notas médias menores. Entretanto, ao aprofundar a investigação e compreender melhor o contexto dos dados, percebe-se que estados com maior investimento em educação tendem a ampliar o acesso à prova, permitindo a participação de um número maior de alunos, independentemente do nível de desempenho individual. Por outro lado, estados com menor investimento acabam restringindo a participação, concentrando-a em alunos com maior poder aquisitivo ou com maior probabilidade de ingresso no ensino superior.
+
+A variável faixa salarial apresentou relação com a pontuação dos alunos, porém não manteve relevância estatística no modelo múltiplo. Isso sugere que o efeito do salário pode estar mais associado às despesas educacionais dos estados e à quantidade de participantes do que diretamente ao desempenho médio obtido.
+
+Por fim, a variável razão não se mostrou estatisticamente significativa neste conjunto de dados. Contudo, isso não significa que a quantidade de alunos não impacte a qualidade do ensino. A principal conclusão é que, especificamente para está base analisada, não foram encontradas evidências estatísticas suficientes para confirmar essa relação de maneira significativa.
+
+Agora sobre o modelo selecionado, ele explica aproximadamente 82% da variação observada na pontuação média total, com R2 ajustado de aproximadamente 81%. Os diagnósticos dos resíduos não indicaram violações graves dos pressupostos da regressão linear.
+
+Conclui-se que o percentual de participação deve ser considerado indispensável em qualquer análise desse banco de dados. Sem esse controle, a relação entre investimento educacional e desempenho pode ser interpretada de forma equivocada. Após controlar a participação no exame, a despesa por aluno aparece positivamente associada à pontuação média no SAT.
+
+Por se tratar de um estudo observacional com dados agregados por estado, os resultados não devem ser interpretados como relações causais definitivas. Variáveis não observadas, como renda familiar, composição socioeconômica, políticas estaduais de admissão universitária e preferência regional pelo SAT ou por outros exames, podem influenciar simultaneamente a participação e o desempenho. Ainda assim, o modelo ajustado fornece uma explicação estatística coerente e evidencia a importância de controlar fatores de seleção ao comparar médias educacionais entre estados.
